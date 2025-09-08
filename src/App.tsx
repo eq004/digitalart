@@ -203,7 +203,7 @@ export default function App() {
     setElements(prev => prev.map(el => ({ ...el, selected: false })));
   };
 
-  // Save artwork function with Chromebook compatibility
+  // Save artwork function with iPad/iOS and Chromebook compatibility
   const saveArtwork = async () => {
     if (!canvasRef.current?.canvas.current || !canvasRef.current?.drawingCanvas.current) {
       alert('Canvas not ready. Please try again.');
@@ -211,9 +211,11 @@ export default function App() {
     }
     
     try {
-      // Check if we're on a Chromebook or have File System Access API
+      // Device detection
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       const isChromebook = /CrOS/.test(navigator.userAgent);
       const hasFileSystemAccess = 'showSaveFilePicker' in window;
+      const hasWebShare = navigator.share;
       
       // Create a temporary canvas to combine elements and drawing
       const tempCanvas = document.createElement('canvas');
@@ -329,6 +331,131 @@ export default function App() {
       
       const filename = `cubist-art-${Date.now()}.jpg`;
       
+      // iOS-specific handling with Web Share API
+      if (isIOS && hasWebShare) {
+        try {
+          // Convert canvas to blob for sharing
+          const blob = await new Promise<Blob>((resolve) => {
+            tempCanvas.toBlob((blob) => {
+              resolve(blob!);
+            }, 'image/jpeg', 0.9);
+          });
+          
+          // Create a File object for sharing
+          const file = new File([blob], filename, { type: 'image/jpeg' });
+          
+          // Use Web Share API to share the image
+          await navigator.share({
+            title: 'My Cubist Artwork',
+            text: 'Check out my cubist portrait!',
+            files: [file]
+          });
+          
+          console.log('Artwork shared successfully via Web Share API');
+          return;
+        } catch (shareError) {
+          console.log('Web Share API failed, falling back to iOS image view');
+          // Fall through to iOS fallback
+        }
+      }
+      
+      // iOS fallback: Open image in new tab with instructions
+      if (isIOS) {
+        const dataURL = tempCanvas.toDataURL('image/jpeg', 0.9);
+        
+        // Open image in new window/tab
+        const newWindow = window.open();
+        if (newWindow) {
+          newWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes">
+              <title>Your Cubist Artwork</title>
+              <style>
+                body {
+                  margin: 0;
+                  padding: 20px;
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                  background: #f5f5f7;
+                  text-align: center;
+                }
+                .instructions {
+                  background: white;
+                  padding: 20px;
+                  border-radius: 12px;
+                  margin-bottom: 20px;
+                  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                }
+                .instructions h2 {
+                  margin-top: 0;
+                  color: #1d1d1f;
+                }
+                .steps {
+                  text-align: left;
+                  margin: 15px 0;
+                }
+                .steps li {
+                  margin: 8px 0;
+                  color: #515154;
+                }
+                .highlight {
+                  background: #007AFF;
+                  color: white;
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                  font-weight: 600;
+                }
+                img {
+                  max-width: 100%;
+                  height: auto;
+                  border-radius: 8px;
+                  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                }
+                @media (max-width: 768px) {
+                  body { padding: 10px; }
+                  .instructions { padding: 15px; }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="instructions">
+                <h2>📸 Save to Camera Roll</h2>
+                <ol class="steps">
+                  <li><strong>Long press</strong> on the image below</li>
+                  <li>Select <span class="highlight">Save to Photos</span></li>
+                  <li>Your artwork will be saved to your Camera Roll!</li>
+                </ol>
+              </div>
+              <img src="${dataURL}" alt="Your Cubist Artwork" />
+            </body>
+            </html>
+          `);
+          newWindow.document.close();
+          
+          // Show success message after a delay
+          setTimeout(() => {
+            alert('Image opened in new tab! Follow the instructions to save to your Camera Roll.');
+          }, 500);
+        } else {
+          // Fallback if popup blocked
+          const link = document.createElement('a');
+          link.download = filename;
+          link.href = dataURL;
+          link.target = '_blank';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          setTimeout(() => {
+            alert('Image download started! On iPad: long-press the image and select "Save to Photos".');
+          }, 500);
+        }
+        
+        return;
+      }
+      
       // Try modern File System Access API for Chromebooks first
       if (hasFileSystemAccess && isChromebook) {
         try {
@@ -407,18 +534,25 @@ export default function App() {
       
       console.log('Artwork saved successfully as JPEG');
       
-      // Show Chromebook-specific message if applicable
+      // Show device-specific success messages
       if (isChromebook) {
         setTimeout(() => {
           alert('Artwork saved to your Downloads folder! You can also save to Google Drive by opening the file and choosing "Move to Drive".');
+        }, 500);
+      } else if (!isIOS) {
+        // Desktop/other devices
+        setTimeout(() => {
+          alert('Artwork saved successfully!');
         }, 500);
       }
       
     } catch (error) {
       console.error('Error saving artwork:', error);
       
-      // Chromebook-specific error handling
-      if (/CrOS/.test(navigator.userAgent)) {
+      // Device-specific error handling
+      if (isIOS) {
+        alert('Error saving artwork. Please check your internet connection and try again. On iPad, you may need to allow popups for this site.');
+      } else if (isChromebook) {
         alert('Error saving artwork. Please check your internet connection and storage permissions, then try again. On Chromebooks, ensure you have space in your Downloads folder.');
       } else {
         alert('Error saving artwork. Some images may not have loaded properly. Please try again.');
